@@ -1,23 +1,29 @@
 pipeline {
     agent any
-    
+
     environment {
-        repositoryGit = 'https://github.com/exemple'
-        gitCredentialsId = 'devopsalcif'
+
+        //## ESSAS VARIÁVEIS TAMBÉM PODEM SER CONFIGURADAS GLOBALMENTE, PARA UTILIZA-LAS LOCALMENTE, BASTA DESCOMENTAR E CONFIGURAR ####
+
+        // urlPortainer  = 'https://127.0.0.1:9443'
+        // userPortainer = 'USER_PORTAINER'
+        // passwordPortainer = 'PASS_PORTAINER'
+        // SwarmID = 'PORTAINER-SWARMID'
+        // endpointIdPortainer = '1'
     }
 
     stages {
                 stage('Prepare') {
                     steps {
                         sh 'apt-get update && apt-get install -y jq'
-                        
-                         script {
+
+                script {
                             def urlPortainer = env.urlPortainer
                             def userPortainer = env.userPortainer
                             def passwordPortainer = env.passwordPortainer
                             def SwarmID = env.SwarmID
                             def endpointIdPortainer = env.endpointIdPortainer
-                            
+
                             def jwtToken = sh(script:  """
                                 curl --request POST -k --url $urlPortainer/api/auth \
                                 --header 'Content-Type: application/json' \
@@ -30,34 +36,27 @@ pipeline {
                             echo "Valor do JWT: $jwt"
 
                             if (jwt) {
-                                env.authPortainer = jwt
+                                  env.authPortainer = jwt
                             } else {
-                                error 'API Authentication Failed'
+                                  error 'API Authentication Failed'
                             }
-                            
-                            
-                            
-                        }
-                        
+                }
                     }
                 }
 
-                stage('Checkout from GitHub') {
+                stage('Repo git identifier') {
                     steps {
                         script {
-                            def gitCredentialsId = env.gitCredentialsId
-                            def gitRepoUrl = env.repositoryGit
-                                // Extrair o nome do repositório do URL
-                                def gitRepoName = gitRepoUrl.tokenize('/')[-1].replaceFirst(/\.git$/, '')
+                            def gitUrl = sh(returnStdout: true, script: 'git config --get remote.origin.url').trim()
+                            echo "Git Repository URL: $gitUrl"
+                            // Extrair o nome do repositório do URL
+                            def gitRepoName = gitUrl.tokenize('/')[-1].replaceFirst(/\.git$/, '')
 
-                                // Armazenar o nome do repositório em uma variável de ambiente
-                                env.gitRepoName = gitRepoName
-
-                                git branch: 'main', credentialsId: gitCredentialsId, url: gitRepoUrl
+                            // Armazenar o nome do repositório em uma variável de ambiente
+                            env.gitRepoName = gitRepoName
                         }
                     }
                 }
-
 
                 stage('Deploy on Portainer') {
                     steps {
@@ -70,13 +69,13 @@ pipeline {
                             print(dockerComposeFile)
                             def gitRepoName = env.gitRepoName
                             print(gitRepoName)
-                            
+
                             def fileContent = readFile(file: 'Dockerfile', encoding: 'UTF-8')
-                            def tagImage = gitRepoName + ":latest"
-                            def encodedTagImage = URLEncoder.encode(tagImage, "UTF-8")
-                            
+                            def tagImage = gitRepoName + ':latest'
+                            def encodedTagImage = URLEncoder.encode(tagImage, 'UTF-8')
+
                             def sanitizedFileContent = fileContent.replaceAll('\\n', '\\n')
-                            
+
                             sh """curl --request POST -k \
                               --url '$urlPortainer/api/endpoints/$endpointIdPortainer/docker/build?dockerfile=Dockerfile&t=$encodedTagImage' \
                               --header 'Accept: application/json, text/plain, */*' \
@@ -84,8 +83,8 @@ pipeline {
                               --header 'Content-Type: multipart/form-data' \
                               --form dockerfile=@./Dockerfile
                               """
-                            
-                            def idStack = sh(script: """ 
+
+                            def idStack = sh(script: """
                             curl --request GET -k \
                             --url '$urlPortainer/api/stacks'\
                             --header 'Accept: application/json, text/plain, */*'\
@@ -95,21 +94,20 @@ pipeline {
 
                             """, returnStdout: true).trim()
                             print(idStack)
-                            
-                            if(idStack){
-                                print("Deletando..")
-                                
-                                  sh """
-                                    curl --request DELETE -k \
-                                      --url '$urlPortainer/api/stacks/$idStack?endpointId=$endpointIdPortainer&external=false' \
-                                      --header 'Accept: application/json, text/plain, */*' \
-                                      --header 'Authorization: Bearer $jwt'
-                                    """
-                                    
-                                    sleep 30
+
+                            if (idStack) {
+                                print('Deletando..')
+
+                                sh """
+                                            curl --request DELETE -k \
+                                            --url '$urlPortainer/api/stacks/$idStack?endpointId=$endpointIdPortainer&external=false' \
+                                            --header 'Accept: application/json, text/plain, */*' \
+                                            --header 'Authorization: Bearer $jwt'
+                                            """
+
+                                sleep 30
                             }
-                            
-                            
+
                             sh """
                              curl --request POST -k \
                             --url '$urlPortainer/api/stacks/create/swarm/file?endpointId=$endpointIdPortainer' \
@@ -123,7 +121,7 @@ pipeline {
                             --form Webhook= \
                             --form SwarmID=$SwarmID
                                                 """
-                         def idNStack = sh(script: """ 
+                    def idNStack = sh(script: """
                             curl --request GET -k \
                             --url '$urlPortainer/api/stacks'\
                             --header 'Accept: application/json, text/plain, */*'\
@@ -131,13 +129,12 @@ pipeline {
                             --header 'Authorization: Bearer $jwt'\
                             --header 'Cache-Control: no-cache' | jq -r '.[] | select(.Name == "$gitRepoName").Id'
 
-                            """, returnStdout: true).trim()      
-                            if(idNStack){
-                                print("Copilado com sucesso!")
-                            }else{
-                                   error 'Stack não encontrada no portainer.'
+                            """, returnStdout: true).trim()
+                            if (idNStack) {
+                        print('Copilado com sucesso!')
+                            }else {
+                        error 'Stack não encontrada no portainer.'
                             }
-                            
                         }
                     }
                 }
