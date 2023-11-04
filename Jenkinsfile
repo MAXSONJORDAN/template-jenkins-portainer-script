@@ -3,6 +3,7 @@ pipeline {
 
     environment {
 
+        variavelExemplo = 'exemplo.com'
         //## ESSAS VARIÁVEIS TAMBÉM PODEM SER CONFIGURADAS GLOBALMENTE, PARA UTILIZA-LAS LOCALMENTE, BASTA DESCOMENTAR E CONFIGURAR ####
 
         // urlPortainer  = 'https://127.0.0.1:9443'
