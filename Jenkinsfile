@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     environment {
-        repositoryGit = 'https://github.com/alcifmais/alcifroot'
+        repositoryGit = 'https://github.com/exemple'
         gitCredentialsId = 'devopsalcif'
     }
 
