@@ -2,19 +2,18 @@ pipeline {
     agent any
 
     environment {
-
         variavelExemplo = 'exemplo.com'
         //## ESSAS VARIÁVEIS TAMBÉM PODEM SER CONFIGURADAS GLOBALMENTE, PARA UTILIZA-LAS LOCALMENTE, BASTA DESCOMENTAR E CONFIGURAR ####
 
-        // urlPortainer  = 'https://127.0.0.1:9443'
-        // userPortainer = 'USER_PORTAINER'
-        // passwordPortainer = 'PASS_PORTAINER'
-        // SwarmID = 'PORTAINER-SWARMID'
-        // endpointIdPortainer = '1'
+    // urlPortainer  = 'https://127.0.0.1:9443'
+    // userPortainer = 'USER_PORTAINER'
+    // passwordPortainer = 'PASS_PORTAINER'
+    // SwarmID = 'PORTAINER-SWARMID'
+    // endpointIdPortainer = '1'
     }
 
     stages {
-                stage('Prepare') {
+                stage('Preparação e Autenticação') {
                     steps {
                         sh 'apt-get update && apt-get install -y jq'
 
@@ -22,8 +21,6 @@ pipeline {
                             def urlPortainer = env.urlPortainer
                             def userPortainer = env.userPortainer
                             def passwordPortainer = env.passwordPortainer
-                            def SwarmID = env.SwarmID
-                            def endpointIdPortainer = env.endpointIdPortainer
 
                             def jwtToken = sh(script:  """
                                 curl --request POST -k --url $urlPortainer/api/auth \
@@ -37,17 +34,11 @@ pipeline {
                             echo "Valor do JWT: $jwt"
 
                             if (jwt) {
-                                  env.authPortainer = jwt
+                        env.authPortainer = jwt
                             } else {
-                                  error 'API Authentication Failed'
+                        error 'API Authentication Failed'
                             }
-                }
-                    }
-                }
 
-                stage('Repo git identifier') {
-                    steps {
-                        script {
                             def gitUrl = sh(returnStdout: true, script: 'git config --get remote.origin.url').trim()
                             echo "Git Repository URL: $gitUrl"
                             // Extrair o nome do repositório do URL
@@ -55,27 +46,24 @@ pipeline {
 
                             // Armazenar o nome do repositório em uma variável de ambiente
                             env.gitRepoName = gitRepoName
-                        }
+                }
                     }
                 }
 
-                stage('Deploy on Portainer') {
+                stage('Atualização da Imagem Docker') {
                     steps {
                         script {
                             def jwt = env.authPortainer
                             def urlPortainer = env.urlPortainer
-                            def SwarmID = env.SwarmID
                             def endpointIdPortainer = env.endpointIdPortainer
-                            def dockerComposeFile = sh(script: "find . -name 'docker-compose.yml' | head -n 1", returnStdout: true).trim()
-                            print(dockerComposeFile)
-                            def gitRepoName = env.gitRepoName
-                            print(gitRepoName)
 
-                            def fileContent = readFile(file: 'Dockerfile', encoding: 'UTF-8')
+                            print('Lendo arquivo para ver se existe.')
+                            readFile(file: 'Dockerfile', encoding: 'UTF-8')
+
                             def tagImage = gitRepoName + ':latest'
-                            def encodedTagImage = URLEncoder.encode(tagImage, 'UTF-8')
+                            print('preparando para subir - ' + tagImage)
 
-                            def sanitizedFileContent = fileContent.replaceAll('\\n', '\\n')
+                            def encodedTagImage = URLEncoder.encode(tagImage, 'UTF-8')
 
                             sh """curl --request POST -k \
                               --url '$urlPortainer/api/endpoints/$endpointIdPortainer/docker/build?dockerfile=Dockerfile&t=$encodedTagImage' \
@@ -84,8 +72,21 @@ pipeline {
                               --header 'Content-Type: multipart/form-data' \
                               --form dockerfile=@./Dockerfile
                               """
+                        }
+                    }
+                }
 
-                            def idStack = sh(script: """
+                stage('Derrubada de Serviços Existentes') {
+            steps {
+                script {
+                            String jwt = env.authPortainer
+                            String urlPortainer = env.urlPortainer
+                            String endpointIdPortainer = env.endpointIdPortainer
+
+                            String gitRepoName = env.gitRepoName
+                            print(gitRepoName)
+
+                            String idStack = sh(script: """
                             curl --request GET -k \
                             --url '$urlPortainer/api/stacks'\
                             --header 'Accept: application/json, text/plain, */*'\
@@ -94,20 +95,38 @@ pipeline {
                             --header 'Cache-Control: no-cache' | jq -r '.[] | select(.Name == "$gitRepoName").Id'
 
                             """, returnStdout: true).trim()
-                            print(idStack)
+
+                            print("ID Stack resultante: "+idStack)
 
                             if (idStack) {
-                                print('Deletando..')
+                                    print('Deletando stack '+idStack)
 
-                                sh """
-                                            curl --request DELETE -k \
-                                            --url '$urlPortainer/api/stacks/$idStack?endpointId=$endpointIdPortainer&external=false' \
-                                            --header 'Accept: application/json, text/plain, */*' \
-                                            --header 'Authorization: Bearer $jwt'
-                                            """
+                                    sh """
+                                    curl --request DELETE -k \
+                                    --url '$urlPortainer/api/stacks/$idStack?endpointId=$endpointIdPortainer&external=false' \
+                                    --header 'Accept: application/json, text/plain, */*' \
+                                    --header 'Authorization: Bearer $jwt'
+                                    """
 
-                                sleep 30
+                                    sleep 30
+                            }else{
+                                print("Stack não existe, não foi preciso excluir.")
                             }
+                }
+            }
+                }
+
+                stage('Subida do Serviço Atualizador') {
+                    steps {
+                        script {
+                            String jwt = env.authPortainer
+                            String urlPortainer = env.urlPortainer
+                            String swarmID = env.SwarmID
+
+                            String endpointIdPortainer = env.endpointIdPortainer
+                            
+                            String gitRepoName = env.gitRepoName
+                            print(gitRepoName)
 
                             sh """
                              curl --request POST -k \
@@ -120,8 +139,12 @@ pipeline {
                             --form file=@./docker-compose.yml \
                             --form 'Env=[]' \
                             --form Webhook= \
-                            --form SwarmID=$SwarmID
+                            --form SwarmID=$swarmID
                                                 """
+
+
+
+
                     def idNStack = sh(script: """
                             curl --request GET -k \
                             --url '$urlPortainer/api/stacks'\
@@ -139,5 +162,39 @@ pipeline {
                         }
                     }
                 }
+
+
+                stage('Verificação de Serviço Implementado') {
+                    steps {
+                        script {
+                            String jwt = env.authPortainer
+                            String urlPortainer = env.urlPortainer
+                            String gitRepoName = env.gitRepoName
+
+
+                            String idNStack = sh(script: """
+                            curl --request GET -k \
+                            --url '$urlPortainer/api/stacks'\
+                            --header 'Accept: application/json, text/plain, */*'\
+                            --header 'Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'\
+                            --header 'Authorization: Bearer $jwt'\
+                            --header 'Cache-Control: no-cache' | jq -r '.[] | select(.Name == "$gitRepoName").Id'
+
+                            """, returnStdout: true).trim()
+                            print("Novo ID Stack publicada"+idNStack)
+                            
+                            if (idNStack) {
+                                print('Copilado com sucesso!')
+                            }else {
+                                 error 'Stack não encontrada no portainer.'
+                            }
+                        }
+                    }
+                }
+
+
+
+
+
     }
 }
