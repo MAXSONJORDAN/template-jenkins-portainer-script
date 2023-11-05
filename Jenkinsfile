@@ -65,13 +65,47 @@ pipeline {
 
                             def encodedTagImage = URLEncoder.encode(tagImage, 'UTF-8')
 
-                            sh """curl --request POST -k \
+                            // sh """curl --request POST -k \
+                            //   --url '$urlPortainer/api/endpoints/$endpointIdPortainer/docker/build?dockerfile=Dockerfile&t=$encodedTagImage' \
+                            //   --header 'Accept: application/json, text/plain, */*' \
+                            //   --header 'Authorization: Bearer $jwt' \
+                            //   --header 'Content-Type: multipart/form-data' \
+                            //   --form dockerfile=@./Dockerfile
+                            //   """
+                            // sleep 5
+
+                            //curl --request POST --url 'https://192.168.7.215:9443/api/publicImage' | jq -r '.[] | select(.errorDetail != null).errorDetail.code'
+
+                           def erroString = sh(script: """
+                              curl --request POST -k \
                               --url '$urlPortainer/api/endpoints/$endpointIdPortainer/docker/build?dockerfile=Dockerfile&t=$encodedTagImage' \
                               --header 'Accept: application/json, text/plain, */*' \
                               --header 'Authorization: Bearer $jwt' \
                               --header 'Content-Type: multipart/form-data' \
                               --form dockerfile=@./Dockerfile
-                              """
+                            """, returnStdout: true).trim()
+
+                            def pattern = /"errorDetail":\s*\{/
+                            def hasErrorDetail = erroString =~ pattern
+
+                            print(erroString)
+                            print("verificando se foi erro "+hasErrorDetail)
+                             if (hasErrorDetail.find()) {
+                                 print("Falha no build")
+                                error 'image não buildada no portainer.'
+                            } else {
+                                echo "No 'errorDetail' found in the JSON string."
+                            }
+
+                        //     sh """
+                        //    curl --request GET \
+                        //     --url 'https://192.168.7.215:9443/api/endpoints/4/docker/images/json?all=0' \
+                        //     --header 'Accept: application/json, text/plain, */*' \
+                        //     --header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwidXNlcm5hbWUiOiJtam9yZGFuIiwicm9sZSI6MSwic2NvcGUiOiJkZWZhdWx0IiwiZm9yY2VDaGFuZ2VQYXNzd29yZCI6ZmFsc2UsImV4cCI6MTY5OTIxMzUyMSwiaWF0IjoxNjk5MTg0NzIxfQ.AtYnKi6IpI96X1QpSOXCJq-kBPyQF6AJDkU6NdqDsRs' \
+                        //     --header 'Cache-Control: no-cache' | jq -r '.[] | select(.RepoTags | contains(["service-registration-check:latest"])).Id'
+
+                        //      """
+                        //
                         }
                     }
                 }
@@ -96,21 +130,21 @@ pipeline {
 
                             """, returnStdout: true).trim()
 
-                            print("ID Stack resultante: "+idStack)
+                            print('ID Stack resultante: ' + idStack)
 
                             if (idStack) {
-                                    print('Deletando stack '+idStack)
+                        print('Deletando stack ' + idStack)
 
-                                    sh """
+                        sh """
                                     curl --request DELETE -k \
                                     --url '$urlPortainer/api/stacks/$idStack?endpointId=$endpointIdPortainer&external=false' \
                                     --header 'Accept: application/json, text/plain, */*' \
                                     --header 'Authorization: Bearer $jwt'
                                     """
 
-                                    sleep 30
-                            }else{
-                                print("Stack não existe, não foi preciso excluir.")
+                        sleep 30
+                            }else {
+                        print('Stack não existe, não foi preciso excluir.')
                             }
                 }
             }
@@ -124,7 +158,7 @@ pipeline {
                             String swarmID = env.SwarmID
 
                             String endpointIdPortainer = env.endpointIdPortainer
-                            
+
                             String gitRepoName = env.gitRepoName
                             print(gitRepoName)
 
@@ -141,9 +175,6 @@ pipeline {
                             --form Webhook= \
                             --form SwarmID=$swarmID
                                                 """
-
-
-
 
                     def idNStack = sh(script: """
                             curl --request GET -k \
@@ -163,14 +194,12 @@ pipeline {
                     }
                 }
 
-
                 stage('Verificação de Serviço Implementado') {
                     steps {
                         script {
                             String jwt = env.authPortainer
                             String urlPortainer = env.urlPortainer
                             String gitRepoName = env.gitRepoName
-
 
                             String idNStack = sh(script: """
                             curl --request GET -k \
@@ -181,20 +210,15 @@ pipeline {
                             --header 'Cache-Control: no-cache' | jq -r '.[] | select(.Name == "$gitRepoName").Id'
 
                             """, returnStdout: true).trim()
-                            print("Novo ID Stack publicada"+idNStack)
-                            
+                            print('Novo ID Stack publicada' + idNStack)
+
                             if (idNStack) {
-                                print('Copilado com sucesso!')
+                        print('Copilado com sucesso!')
                             }else {
-                                 error 'Stack não encontrada no portainer.'
+                        error 'Stack não encontrada no portainer.'
                             }
                         }
                     }
                 }
-
-
-
-
-
     }
 }
